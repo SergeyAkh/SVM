@@ -1,16 +1,18 @@
 import numpy as np
+
 def add_bias_feature(a):
     a_extended = np.zeros((a.shape[0],a.shape[1]+1))
     a_extended[:,:-1] = a
     a_extended[:,-1] = int(1)
     return a_extended
 
-
 class CustomSVM(object):
 
     __class__ = "CustomSVM"
     __doc__ = """
-    
+    This is an implementation of the SVM classification algorithm
+    Note that it works only for binary classification
+
     etha: float(default - 0.01)
         Learning rate, gradient step
 
@@ -19,6 +21,7 @@ class CustomSVM(object):
 
     epochs: int, (default - 200)
         Number of epochs of training
+
     """
 
     def __init__(self, etha=0.01, alpha=0.1, epochs=200):
@@ -26,57 +29,51 @@ class CustomSVM(object):
         self._etha = etha
         self._alpha = alpha
         self._w = None
-        self.history_w = []
+        self.history_w = list()
         self.train_errors = None
         self.val_errors = None
         self.train_loss = None
         self.val_loss = None
 
-    def fit(self, X_train, Y_train, X_val, Y_val, verbose=False): #arrays: X; Y =-1,1
+    def fit(self, X, y): #arrays: X; Y =-1,1
+        """
+        Train the SVM model using gradient descent.
 
-        if len(set(Y_train)) != 2 or len(set(Y_val)) != 2:
+        Parameters:
+        - X: Feature matrix (N x d)
+        - y: Labels vector (N,)
+
+        Returns:
+        - self: Trained SVM model
+        """
+        if len(set(y)) != 2:
             raise ValueError("Number of classes in Y is not equal 2!")
 
-        X_train = add_bias_feature(X_train)
-        X_val = add_bias_feature(X_val)
-        self._w = np.random.normal(loc=0, scale=0.05, size=X_train.shape[1])
+        X = add_bias_feature(X)
+        self._w = np.random.normal(loc=0, scale=0.05, size=X.shape[1])
         self.history_w.append(self._w)
         train_errors = []
-        val_errors = []
         train_loss_epoch = []
-        val_loss_epoch = []
 
         for epoch in range(self._epochs):
             tr_err = 0
-            val_err = 0
             tr_loss = 0
-            val_loss = 0
-            for i,x in enumerate(X_train):
-                margin = Y_train[i]*np.dot(self._w,X_train[i])
-                if margin >= 1: # классифицируем верно
-                    self._w = self._w - self._etha*self._alpha*self._w/self._epochs
-                    tr_loss += self.soft_margin_loss(X_train[i],Y_train[i])
-                else: # классифицируем неверно или попадаем на полосу разделения при 0<m<1
+            for i,x in enumerate(X):
+                margin = y[i]*np.dot(self._w,X[i])
+                if margin >= 1:
+                    self._w = self._w - self._etha*self._alpha*self._w
+                    tr_loss += self.soft_margin_loss(X[i],y[i])
+                else:
                     self._w = self._w +\
-                    self._etha*(Y_train[i]*X_train[i] - self._alpha*self._w/self._epochs)
+                    self._etha*(y[i]*X[i] - self._alpha*self._w)
                     tr_err += 1
-                    tr_loss += self.soft_margin_loss(X_train[i],Y_train[i])
+                    tr_loss += self.soft_margin_loss(X[i],y[i])
                 self.history_w.append(self._w)
-            for i,x in enumerate(X_val):
-                val_loss += self.soft_margin_loss(X_val[i], Y_val[i])
-                val_err += (Y_val[i]*np.dot(self._w,X_val[i])<1).astype(int)
-            if verbose:
-                print('epoch {}. Errors={}. Mean Hinge_loss={}'\
-                      .format(epoch,val_err,val_loss))
             train_errors.append(tr_err)
-            val_errors.append(val_err)
             train_loss_epoch.append(tr_loss)
-            val_loss_epoch.append(val_loss)
         self.history_w = np.array(self.history_w)
         self.train_errors = np.array(train_errors)
-        self.val_errors = np.array(val_errors)
         self.train_loss = np.array(train_loss_epoch)
-        self.val_loss = np.array(val_loss_epoch)
 
     def predict(self, X:np.array) -> np.array:
         y_pred = []
@@ -90,3 +87,33 @@ class CustomSVM(object):
 
     def soft_margin_loss(self, x, y):
         return self.hinge_loss(x,y)+self._alpha*np.dot(self._w, self._w)
+
+    def predict_proba(self, x):
+        """
+        Predict class probabilities using the trained SVM model.
+
+        Parameters:
+        - X: Feature matrix (N x d)
+
+        Returns:
+        - probabilities: Probabilities of each class (-1 or +1) for each sample
+        """
+        # Add a column of ones to X to account for the bias term (augmented X)
+        X_extended = add_bias_feature(x)
+
+        # Compute the decision function
+        decision = np.dot(X_extended, self._w)  # (N,)
+
+        # Apply the sigmoid function to get probabilities in range [0, 1]
+        prob = 1 / (1 + np.exp(-decision))  # Probability for class +1
+
+        return np.column_stack([1 - prob, prob])
+
+    def get_params(self):
+        """
+        Get the learned parameters of the model (bias and weights).
+
+        Returns:
+        - w_star: Augmented weight vector [b, w]
+        """
+        return self._w[0], self._w[1:]
