@@ -1,92 +1,149 @@
 import numpy as np
 
-def add_bias_feature(a):
-    a_extended = np.zeros((a.shape[0],a.shape[1]+1))
-    a_extended[:,:-1] = a
-    a_extended[:,-1] = int(1)
-    return a_extended
 
-class CustomSVM(object):
-
-    __class__ = "CustomSVM"
-    __doc__ = """
-    This is an implementation of the SVM classification algorithm
-    Note that it works only for binary classification
-
-    etha: float(default - 0.01)
-        Learning rate, gradient step
-
-    alpha: float, (default - 0.1)
-        Regularization parameter in 0.5*alpha*||w||^2
-
-    epochs: int, (default - 200)
-        Number of epochs of training
-
-    """
-
-    def __init__(self, etha=0.01, alpha=0.1, epochs=200):
-        self._epochs = epochs
-        self._etha = etha
-        self._alpha = alpha
-        self._w = None
-        self.history_w = list()
-        self.train_errors = None
-        self.val_errors = None
-        self.train_loss = None
-        self.val_loss = None
-
-    def fit(self, X, y): #arrays: X; Y =-1,1
+class Custom_SVM(object):
+    def __init__(self, C=1.0, eta=0.01, num_iterations=1000):
         """
-        Train the SVM model using gradient descent.
+        Initializes the SVM classifier with the given parameters.
 
         Parameters:
-        - X: Feature matrix (N x d)
-        - y: Labels vector (N,)
+        - C: Regularization parameter (default is 1.0).
+        - eta: Learning rate (default is 0.01).
+        - num_iterations: Number of gradient descent iterations (default is 1000).
+        """
+        self.C = C
+        self.eta = eta
+        self.num_iterations = num_iterations
+        self.W = None  # Weights vector (W, b) will be stored here
+        self.test_accuracy = list()
+        self.test_loss = list()
+        self.train_accuracy = list()
+        self.train_loss = list()
+
+    def fit(self, X, y, X_test = None, y_test = None, verbose = False):
+        """
+        Trains the SVM classifier using gradient descent.
+
+        Parameters:
+        - X: numpy array of shape (m, n), where m is the number of training samples and n is the number of features.
+        - y: numpy array of shape (m,), where each element is the label (+1 or -1).
+        """
+
+        m, n = X.shape
+
+        # Augment the input matrix X to include a column of ones for the bias term
+        X_augmented = np.hstack([X, np.ones((m, 1))])  # Shape (m, n+1)
+
+        # Initialize the combined weight vector (W, b) with small random values
+        self.W_combined = np.random.randn(n + 1) * 0.01  # Shape (n+1,)
+
+        # Gradient descent loop
+        for iteration in range(self.num_iterations):
+            # Compute the decision function for all training samples
+            decision_values = np.dot(X_augmented, self.W_combined)  # Shape (m,)
+
+            # Compute the hinge loss gradients
+            hinge_loss_gradient = np.zeros_like(self.W_combined)
+
+            for i in range(m):
+                if y[i] * decision_values[i] < 1:
+                    hinge_loss_gradient -= self.C * y[i] * X_augmented[i]
+
+            # The regularization gradient is simply the weight vector (including bias term)
+            regularization_gradient = self.W_combined
+
+            # Total gradient for the current iteration
+            gradient = regularization_gradient + hinge_loss_gradient
+
+            # Update the combined weight vector (W, b) using gradient descent
+            self.W_combined -= self.eta * gradient
+
+            # Compute the loss
+            loss = self.compute_loss(X, y)
+
+            # Compute accuracy
+            accuracy = self.compute_accuracy(X, y)
+
+            self.train_accuracy.append(accuracy)
+            self.train_loss.append(loss)
+
+            # Optionally: Print the progress every 100 iterations
+            if X_test is not None and y_test is not None:
+                test_loss = self.compute_loss(X_test, y_test)
+                test_acc = self.compute_accuracy(X_test, y_test)
+                self.test_loss.append(test_loss)
+                self.test_accuracy.append(test_acc)
+                # print(f"Iteration {iteration}: Loss = {loss:.4f}, Accuracy = {accuracy:.4f}")
+
+        # After training, separate W and b from the combined weight vector
+        self.W = self.W_combined[:-1]  # Weight vector W
+        self.b = self.W_combined[-1]  # Bias term b
+
+    def compute_loss(self, X, y):
+        """
+        Computes the total loss (hinge loss + regularization) for the current model.
+
+        Parameters:
+        - X: Input data of shape (m, n)
+        - y: True labels of shape (m,)
 
         Returns:
-        - self: Trained SVM model
+        - Total loss (scalar)
         """
-        if len(set(y)) != 2:
-            raise ValueError("Number of classes in Y is not equal 2!")
+        m = X.shape[0]
+        X_augmented = np.hstack([X, np.ones((m, 1))])  # Augment X to include the bias term
 
-        X = add_bias_feature(X)
-        self._w = np.random.normal(loc=0, scale=0.05, size=X.shape[1])
-        self.history_w.append(self._w)
-        train_errors = []
-        train_loss_epoch = []
+        # Compute the decision function (W * X + b)
+        decision_values = np.dot(X_augmented, self.W_combined)  # Shape (m,)
 
-        for epoch in range(self._epochs):
-            tr_err = 0
-            tr_loss = 0
-            for i,x in enumerate(X):
-                margin = y[i]*np.dot(self._w,X[i])
-                if margin >= 1:
-                    self._w = self._w - self._etha*self._alpha*self._w
-                    tr_loss += self.soft_margin_loss(X[i],y[i])
-                else:
-                    self._w = self._w +\
-                    self._etha*(y[i]*X[i] - self._alpha*self._w)
-                    tr_err += 1
-                    tr_loss += self.soft_margin_loss(X[i],y[i])
-                self.history_w.append(self._w)
-            train_errors.append(tr_err)
-            train_loss_epoch.append(tr_loss)
-        self.history_w = np.array(self.history_w)
-        self.train_errors = np.array(train_errors)
-        self.train_loss = np.array(train_loss_epoch)
+        # Compute hinge loss
+        hinge_loss = np.maximum(0, 1 - y * decision_values)
 
-    def predict(self, X:np.array) -> np.array:
-        y_pred = []
-        X_extended = add_bias_feature(X)
-        for i in range(len(X_extended)):
-            y_pred.append(np.sign(np.dot(self._w,X_extended[i])))
-        return np.array(y_pred)
+        # Regularization term (1/2) * ||W||^2
+        regularization_loss = 0.5 * np.sum(self.W_combined[:-1] ** 2)  # Exclude the bias term from the regularization
 
-    def hinge_loss(self, x, y):
-        return max(0,1 - y*np.dot(x, self._w))
+        # Total loss: hinge loss + regularization
+        total_loss = regularization_loss + self.C * np.sum(hinge_loss)
 
-    def soft_margin_loss(self, x, y):
-        return self.hinge_loss(x,y)+self._alpha*np.dot(self._w, self._w)
+        return total_loss
+
+    def compute_accuracy(self, X, y):
+        """
+        Computes the accuracy of the model on the training set.
+
+        Parameters:
+        - X: Input data of shape (m, n)
+        - y: True labels of shape (m,)
+
+        Returns:
+        - Accuracy as a float
+        """
+        predictions = self.predict(X)
+        accuracy = np.mean(predictions == y)
+        return accuracy
+
+    def predict(self, X):
+        """
+        Predicts the class labels for the given input samples.
+
+        Parameters:
+        - X: numpy array of shape (m, n), where m is the number of samples to classify and n is the number of features.
+
+        Returns:
+        - predictions: numpy array of shape (m,), where each element is the predicted label (+1 or -1).
+        """
+        m = X.shape[0]
+
+        # Augment the input matrix X to include a column of ones for the bias term
+        X_augmented = np.hstack([X, np.ones((m, 1))])  # Shape (m, n+1)
+
+        # Compute the decision function for each sample
+        decision_values = np.dot(X_augmented, self.W_combined)  # Shape (m,)
+
+        # Predict the labels (+1 or -1) based on the decision function
+        predictions = np.sign(decision_values)  # Classify based on the sign of decision value
+
+        return predictions
 
     def predict_proba(self, x):
         """
@@ -99,13 +156,13 @@ class CustomSVM(object):
         - probabilities: Probabilities of each class (-1 or +1) for each sample
         """
         # Add a column of ones to X to account for the bias term (augmented X)
-        X_extended = add_bias_feature(x)
+        X_augmented = np.hstack([X, np.ones((m, 1))])
 
         # Compute the decision function
-        decision = np.dot(X_extended, self._w)  # (N,)
+        decision_values = np.dot(X_augmented, self.W_combined)
 
         # Apply the sigmoid function to get probabilities in range [0, 1]
-        prob = 1 / (1 + np.exp(-decision))  # Probability for class +1
+        prob = 1 / (1 + np.exp(-decision_values))  # Probability for class +1
 
         return np.column_stack([1 - prob, prob])
 
@@ -116,4 +173,7 @@ class CustomSVM(object):
         Returns:
         - w_star: Augmented weight vector [b, w]
         """
-        return self._w[0], self._w[1:]
+        return self.W, self.b
+    def get_history(self):
+
+        return self.train_accuracy, self.test_accuracy, self.train_loss, self.test_loss
